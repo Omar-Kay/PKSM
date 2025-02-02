@@ -37,4 +37,5 @@ switch/*.elf
 switch/*.nacp
 switch/*.nro
 switch/*.map
-switch/romfs/
+switch/romfs/gfx/ui/
+switch/romfs/gfx/mock/
