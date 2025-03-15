@@ -2,6 +2,8 @@
 
 #include <sstream>
 
+#include "data/providers/SwitchSaveDataProvider.hpp"
+#include "data/providers/SwitchTitleDataProvider.hpp"
 #include "gui/shared/FontManager.hpp"
 #include "gui/shared/UIConstants.hpp"
 #include "utils/Logger.hpp"
@@ -148,14 +150,19 @@ void PKSMApplication::ShowStorageScreen() {
 void PKSMApplication::OnSaveSelected(pksm::titles::Title::Ref title, pksm::saves::Save::Ref save) {
     LOG_DEBUG("Save selected: " + save->getName() + " for title: " + title->getName());
 
-    // Load the mock save data based on the title and save name
-    if (saveDataAccessor->loadMockSave(title, save->getName())) {
-        LOG_DEBUG("Successfully loaded mock save data");
+    // Load the actual save data based on the title and save name
+    auto userId = accountManager.GetCurrentAccount();
+    bool loadSuccess = saveProvider->LoadSave(title, save->getName(), &userId);
+
+    if (loadSuccess) {
+        LOG_DEBUG("Successfully loaded save data");
 
         // Now that the save is loaded, show the main menu
         this->ShowMainMenu();
     } else {
-        LOG_ERROR("Failed to load mock save data");
+        LOG_ERROR("Failed to load save data");
+        // Handle error - for now, we'll still show the main menu
+        this->ShowMainMenu();
     }
 }
 
@@ -172,11 +179,11 @@ void PKSMApplication::OnLoad() {
             throw std::runtime_error("Account manager initialization failed");
         }
 
-        // Create data providers with initial account
+        // Create real data providers with initial account
         LOG_DEBUG("Creating data providers...");
-        titleProvider = std::make_shared<MockTitleDataProvider>(accountManager.GetCurrentAccount());
-        saveProvider = std::make_shared<MockSaveDataProvider>(accountManager.GetCurrentAccount());
-        saveDataAccessor = std::make_shared<MockSaveDataAccessor>();
+        titleProvider = SwitchTitleDataProvider::New();
+        saveProvider = SwitchSaveDataProvider::New();
+        saveDataAccessor = std::make_shared<MockSaveDataAccessor>();  // Keep using mock accessor for now
 
         // Create navigation callbacks for menu buttons
         LOG_DEBUG("Creating navigation callbacks...");
