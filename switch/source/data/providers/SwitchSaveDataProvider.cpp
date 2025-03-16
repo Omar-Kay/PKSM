@@ -10,23 +10,6 @@
 #include "data/providers/SwitchTitleDataProvider.hpp"
 #include "utils/Logger.hpp"
 
-// Utility to convert string to hex
-static u64 StringToHex(const std::string& str) {
-    u64 result = 0;
-
-    try {
-        if (str.substr(0, 2) == "0x") {
-            result = std::stoull(str.substr(2), nullptr, 16);
-        } else {
-            result = std::stoull(str, nullptr, 16);
-        }
-    } catch (const std::exception& e) {
-        LOG_ERROR(std::string("Failed to convert string to hex: ") + e.what());
-    }
-
-    return result;
-}
-
 // Utility to get a safe title name for filesystem operations
 std::string SwitchSaveDataProvider::GetSafeTitleName(const std::string& name) {
     // Replace characters that aren't valid in filenames

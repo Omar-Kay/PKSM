@@ -9,8 +9,12 @@
 #include "utils/Logger.hpp"
 
 // Helper to check if a title ID belongs to a Pokémon game
-bool SwitchTitleDataProvider::IsPokemonTitle(u64 titleId) {
-    // Known Pokémon title IDs
+bool SwitchTitleDataProvider::IsPokemonTitle(u64 titleId) const {
+    // Disable filtering for debugging
+    return true;
+
+    // Known Pokémon title IDs (currently disabled)
+    /*
     static const std::vector<u64> pokemonTitleIds = {
         0x0100000011D90000,  // Sword
         0x01000A0011D8E000,  // Shield
@@ -24,10 +28,11 @@ bool SwitchTitleDataProvider::IsPokemonTitle(u64 titleId) {
     };
 
     return std::find(pokemonTitleIds.begin(), pokemonTitleIds.end(), titleId) != pokemonTitleIds.end();
+    */
 }
 
 // Get a readable name for a title
-std::string SwitchTitleDataProvider::GetTitleName(u64 titleId, NacpLanguageEntry* languageEntry) {
+std::string SwitchTitleDataProvider::GetTitleName(u64 titleId, NacpLanguageEntry* languageEntry) const {
     if (languageEntry && strlen(languageEntry->name) > 0) {
         return std::string(languageEntry->name);
     }
@@ -45,7 +50,7 @@ std::string SwitchTitleDataProvider::GetTitleName(u64 titleId, NacpLanguageEntry
 }
 
 // Load title icon into a texture
-SDL_Texture* SwitchTitleDataProvider::LoadTitleIcon(NsApplicationControlData* nsacd, size_t iconSize) {
+SDL_Texture* SwitchTitleDataProvider::LoadTitleIcon(NsApplicationControlData* nsacd, size_t iconSize) const {
     if (!nsacd || iconSize == 0) {
         // Return a default icon texture
         return pu::ui::render::LoadImage("romfs:/gfx/default_icon.png");
@@ -100,8 +105,17 @@ pksm::titles::Title::Ref SwitchTitleDataProvider::GetGameCardTitle() const {
 }
 
 std::vector<pksm::titles::Title::Ref> SwitchTitleDataProvider::GetInstalledTitles(const AccountUid& userId) const {
-    // Check if we have cached titles for this user
     auto it = installedTitleCache.find(userId);
+    if (it != installedTitleCache.end()) {
+        return it->second;
+    }
+
+    // Not in cache, so refresh
+    LOG_INFO("Titles not in cache, refreshing for user");
+    RefreshInstalledTitles(userId);
+
+    // Now check cache again
+    it = installedTitleCache.find(userId);
     if (it != installedTitleCache.end()) {
         return it->second;
     }
@@ -121,6 +135,14 @@ std::vector<pksm::titles::Title::Ref> SwitchTitleDataProvider::GetCustomTitles()
 void SwitchTitleDataProvider::RefreshGameCardTitle() {
     // Clear existing game card title
     gameCardTitle = nullptr;
+
+    Result rc = nsInitialize();
+    if (R_FAILED(rc)) {
+        LOG_ERROR("Failed to initialize NS service: 0x" + std::to_string(rc));
+        // Consider how to handle this failure - maybe throw an exception or set a flag
+    } else {
+        LOG_INFO("NS service initialized successfully");
+    }
 
     // Check if a game card is inserted
     bool inserted;
@@ -187,25 +209,16 @@ void SwitchTitleDataProvider::RefreshGameCardTitle() {
 
     // Load icon
     SDL_Texture* iconTexture = LoadTitleIcon(nsacd, outsize - sizeof(nsacd->nacp));
-
-    // Create temporary file for the icon
-    std::string iconPath = "sdmc:/temp_icon_gc.jpg";
-    FILE* iconFile = fopen(iconPath.c_str(), "wb");
-    if (!iconFile) {
-        LOG_ERROR("Failed to create temporary file for game card icon");
+    if (!iconTexture) {
+        LOG_ERROR("Failed to load game card icon texture");
         free(nsacd);
         return;
     }
 
-    // Write icon data to file
-    fwrite(nsacd->icon, 1, outsize - sizeof(nsacd->nacp), iconFile);
-    fclose(iconFile);
-
-    // Create title object
-    gameCardTitle = std::make_shared<pksm::titles::Title>(titleName, iconPath, titleId);
+    // Create title object using the texture directly
+    gameCardTitle = std::make_shared<pksm::titles::Title>(titleName, iconTexture, titleId);
 
     // Clean up
-    remove(iconPath.c_str());
     free(nsacd);
 
     std::stringstream ss;
@@ -213,10 +226,12 @@ void SwitchTitleDataProvider::RefreshGameCardTitle() {
     LOG_INFO(ss.str());
 }
 
-void SwitchTitleDataProvider::RefreshInstalledTitles(const AccountUid& userId) {
+void SwitchTitleDataProvider::RefreshInstalledTitles(const AccountUid& userId) const {
     // Clear existing titles for this user
     installedTitleCache.erase(userId);
     std::vector<pksm::titles::Title::Ref> userTitles;
+
+    LOG_INFO("REFRESH TITLES");
 
     // Open save data info reader
     FsSaveDataInfoReader reader;
@@ -272,24 +287,18 @@ void SwitchTitleDataProvider::RefreshInstalledTitles(const AccountUid& userId) {
                         // Get title name
                         std::string titleName = GetTitleName(titleId, languageEntry);
 
-                        // Create temporary file for the icon
-                        std::string iconPath = "sdmc:/temp_icon.jpg";
-                        FILE* iconFile = fopen(iconPath.c_str(), "wb");
-                        if (iconFile) {
-                            // Write icon data to file
-                            fwrite(nsacd->icon, 1, outsize - sizeof(nsacd->nacp), iconFile);
-                            fclose(iconFile);
-
-                            // Create title object
-                            auto title = std::make_shared<pksm::titles::Title>(titleName, iconPath, titleId);
+                        // Load icon texture
+                        SDL_Texture* iconTexture = LoadTitleIcon(nsacd, outsize - sizeof(nsacd->nacp));
+                        if (iconTexture) {
+                            // Create title object using the texture directly
+                            auto title = std::make_shared<pksm::titles::Title>(titleName, iconTexture, titleId);
                             userTitles.push_back(title);
-
-                            // Clean up
-                            remove(iconPath.c_str());
 
                             std::stringstream ss;
                             ss << "Installed title found: " << titleName << " (0x" << std::hex << titleId << ")";
                             LOG_INFO(ss.str());
+                        } else {
+                            LOG_ERROR("Failed to load icon texture for installed title");
                         }
                     }
                 }
