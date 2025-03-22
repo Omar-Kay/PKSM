@@ -12,22 +12,8 @@
 bool SwitchTitleDataProvider::IsPokemonTitle(u64 titleId) const {
     // Disable filtering for debugging
     return true;
-
-    // Known Pokémon title IDs (currently disabled)
-    /*
-    static const std::vector<u64> pokemonTitleIds = {
-        0x0100000011D90000,  // Sword
-        0x01000A0011D8E000,  // Shield
-        0x0100ABF008968000,  // Lets Go Pikachu
-        0x010003F003A34000,  // Lets Go Eevee
-        0x0100000011D92000,  // Brilliant Diamond
-        0x010018E011D94000,  // Shining Pearl
-        0x01001F5010DFA000,  // Legends Arceus
-        0x0100A3D008C5C000,  // Scarlet
-        0x01008F6008C5E000  // Violet
-    };
-
-    return std::find(pokemonTitleIds.begin(), pokemonTitleIds.end(), titleId) != pokemonTitleIds.end();
+/*
+    return std::find(knownTitile.begin(), pokemonTitleIds.end(), titleId) != pokemonTitleIds.end();
     */
 }
 

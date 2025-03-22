@@ -20,18 +20,18 @@ private:
         bool isLoaded = false;
     };
 
-    std::unordered_map<u64, std::unordered_map<AccountUid, SaveCache, AccountUidHash>> consoleSaveCache;
-    std::unordered_map<u64, std::vector<pksm::saves::Save::Ref>> checkpointSaveCache;
-    std::unordered_map<u64, std::vector<pksm::saves::Save::Ref>> customSaveCache;
+    mutable std::unordered_map<u64, std::unordered_map<AccountUid, SaveCache, AccountUidHash>> consoleSaveCache;
+    mutable std::unordered_map<u64, std::vector<pksm::saves::Save::Ref>> checkpointSaveCache;
+    mutable std::unordered_map<u64, std::vector<pksm::saves::Save::Ref>> customSaveCache;
 
     // Helper methods
-    void RefreshConsoleSaves(const pksm::titles::Title::Ref& title, const AccountUid& userId);
-    void RefreshCheckpointSaves(const pksm::titles::Title::Ref& title);
-    std::string GetSafeTitleName(const std::string& name);
+    void RefreshConsoleSaves(const pksm::titles::Title::Ref& title, const AccountUid& userId) const;
+    void RefreshCheckpointSaves(const pksm::titles::Title::Ref& title) const;
+    std::string GetSaveTitleName(const std::string& name) const;
 
     // Filesystem mounting helpers
-    Result MountSaveData(FsFileSystem* fs, u64 titleId, AccountUid userId);
-    void UnmountSaveData();
+    Result MountSaveData(FsFileSystem* fs, u64 titleId, AccountUid userId) const;
+    void UnmountSaveData() const;
 
 public:
     SwitchSaveDataProvider();
@@ -43,8 +43,11 @@ public:
         const std::optional<AccountUid>& currentUser = std::nullopt
     ) const override;
 
-    bool LoadSave(const pksm::titles::Title::Ref& title, const std::string& saveName, const AccountUid* userId = nullptr)
-        override;
+    bool LoadSave(
+        const pksm::titles::Title::Ref& title,
+        const std::string& saveName,
+        const AccountUid* userId = nullptr
+    ) override;
 
     // Load save from different sources
     bool LoadConsoleSave(const pksm::titles::Title::Ref& title, const AccountUid& userId);
@@ -52,5 +55,6 @@ public:
     bool LoadCustomSave(const pksm::titles::Title::Ref& title, const std::string& saveName);
 
     // Refresh methods
-    void RefreshSaves(const pksm::titles::Title::Ref& title, const std::optional<AccountUid>& userId = std::nullopt);
+    void
+    RefreshSaves(const pksm::titles::Title::Ref& title, const std::optional<AccountUid>& userId = std::nullopt) const;
 };

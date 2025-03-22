@@ -11,7 +11,7 @@
 #include "utils/Logger.hpp"
 
 // Utility to get a safe title name for filesystem operations
-std::string SwitchSaveDataProvider::GetSafeTitleName(const std::string& name) {
+std::string SwitchSaveDataProvider::GetSaveTitleName(const std::string& name) const {
     // Replace characters that aren't valid in filenames
     std::string safeName = name;
     std::regex invalidChars("[\\\\/:*?\"<>|]");
@@ -23,7 +23,7 @@ SwitchSaveDataProvider::SwitchSaveDataProvider() {
     // Initialize empty state
 }
 
-Result SwitchSaveDataProvider::MountSaveData(FsFileSystem* fs, u64 titleId, AccountUid userId) {
+Result SwitchSaveDataProvider::MountSaveData(FsFileSystem* fs, u64 titleId, AccountUid userId) const {
     // Open save data filesystem
     Result res = fsOpen_SaveData(fs, titleId, userId);
     if (R_SUCCEEDED(res)) {
@@ -43,11 +43,13 @@ Result SwitchSaveDataProvider::MountSaveData(FsFileSystem* fs, u64 titleId, Acco
     return res;
 }
 
-void SwitchSaveDataProvider::UnmountSaveData() {
+void SwitchSaveDataProvider::UnmountSaveData() const {
     fsdevUnmountDevice("save");
 }
 
-void SwitchSaveDataProvider::RefreshConsoleSaves(const pksm::titles::Title::Ref& title, const AccountUid& userId) {
+void SwitchSaveDataProvider::RefreshConsoleSaves(const pksm::titles::Title::Ref& title, const AccountUid& userId) const {
+    LOG_INFO("RefreshConsoleSaves" + title->getName());
+
     if (!title) {
         return;
     }
@@ -83,7 +85,7 @@ void SwitchSaveDataProvider::RefreshConsoleSaves(const pksm::titles::Title::Ref&
     }
 }
 
-void SwitchSaveDataProvider::RefreshCheckpointSaves(const pksm::titles::Title::Ref& title) {
+void SwitchSaveDataProvider::RefreshCheckpointSaves(const pksm::titles::Title::Ref& title) const {
     if (!title) {
         return;
     }
@@ -100,7 +102,7 @@ void SwitchSaveDataProvider::RefreshCheckpointSaves(const pksm::titles::Title::R
     std::string titlePath;
 
     // Format 1: ID with name
-    std::string safeName = GetSafeTitleName(title->getName());
+    std::string safeName = GetSaveTitleName(title->getName());
     std::string path1 = basePath + titleIdStr + " " + safeName;
 
     // Format 2: just ID
@@ -148,7 +150,7 @@ void SwitchSaveDataProvider::RefreshCheckpointSaves(const pksm::titles::Title::R
 void SwitchSaveDataProvider::RefreshSaves(
     const pksm::titles::Title::Ref& title,
     const std::optional<AccountUid>& userId
-) {
+) const {
     if (!title) {
         return;
     }
@@ -172,6 +174,9 @@ std::vector<pksm::saves::Save::Ref> SwitchSaveDataProvider::GetSavesForTitle(
     const pksm::titles::Title::Ref& title,
     const std::optional<AccountUid>& currentUser
 ) const {
+    // Refresh the saves data for this title and user
+    RefreshSaves(title, currentUser);
+
     if (!title) {
         return {};
     }
@@ -183,6 +188,7 @@ std::vector<pksm::saves::Save::Ref> SwitchSaveDataProvider::GetSavesForTitle(
     if (currentUser) {
         // Check if we have console saves for this title and user
         auto titleIt = consoleSaveCache.find(titleId);
+
         if (titleIt != consoleSaveCache.end()) {
             auto userIt = titleIt->second.find(*currentUser);
             if (userIt != titleIt->second.end() && userIt->second.isLoaded) {
@@ -194,6 +200,7 @@ std::vector<pksm::saves::Save::Ref> SwitchSaveDataProvider::GetSavesForTitle(
 
     // Add Checkpoint saves
     auto checkpointIt = checkpointSaveCache.find(titleId);
+
     if (checkpointIt != checkpointSaveCache.end()) {
         result.insert(result.end(), checkpointIt->second.begin(), checkpointIt->second.end());
     }
