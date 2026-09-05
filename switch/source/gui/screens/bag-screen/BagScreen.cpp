@@ -8,6 +8,32 @@
 #include "utils/PouchGlyphs.hpp"
 #include "utils/SoftwareKeyboard.hpp"
 
+namespace {
+
+// Numeric keyboard bounded to [min, max]; nothing when cancelled
+std::optional<int> PromptQuantity(const std::string& header, int initial, int min, int max) {
+    const auto entered = pksm::utils::ShowKeyboard(
+        header,
+        std::to_string(initial),
+        std::to_string(max).size(),
+        [min, max](const std::string& text) -> std::optional<std::string> {
+            const bool numeric = !text.empty() && text.find_first_not_of("0123456789") == std::string::npos;
+            const int value = numeric ? std::stoi(text) : -1;
+            if (value < min || value > max) {
+                return "Enter a number from " + std::to_string(min) + " to " + std::to_string(max);
+            }
+            return std::nullopt;
+        },
+        true
+    );
+    if (!entered) {
+        return std::nullopt;
+    }
+    return std::stoi(*entered);
+}
+
+}  // namespace
+
 namespace pksm::layout {
 
 BagScreen::BagScreen(
@@ -53,6 +79,7 @@ BagScreen::BagScreen(
     );
     InitializePouchColumn();
     InitializeItemList();
+    InitializePicker();
     InitializeHelpFooter();
 
     pouchDirectionalHandler.SetOnMoveUp([this]() {
@@ -81,6 +108,15 @@ BagScreen::BagScreen(
     const auto listFocused = [this]() { return itemList->IsFocused(); };
     buttonHandler.RegisterButton(HidNpadButton_A, nullptr, [this]() { PromptCount(); }, listFocused);
     buttonHandler.RegisterButton(HidNpadButton_X, nullptr, [this]() { RemoveItem(); }, listFocused);
+    buttonHandler.RegisterButton(HidNpadButton_Plus, nullptr, [this]() { OpenPicker(); });
+    pickerButtonHandler.RegisterButton(HidNpadButton_A, nullptr, [this]() { PickItem(); });
+    pickerButtonHandler.RegisterButton(HidNpadButton_B, nullptr, [this]() { CancelPicker(); });
+    pickerButtonHandler.RegisterButton(HidNpadButton_Y, nullptr, [this]() { SearchPicker(); }, [this]() {
+        return picker->HasCandidates();
+    });
+    pickerButtonHandler.RegisterButton(HidNpadButton_X, nullptr, [this]() { ClearSearch(); }, [this]() {
+        return !picker->GetSearch().empty();
+    });
 
     if (!pouchButtons.empty()) {
         pouchButtons[0]->RequestFocus();
@@ -167,8 +203,7 @@ void BagScreen::InitializeItemList() {
     );
     emptyNotice->SetVisible(false);
 
-    const pu::i32 listHeight = GetHeight() - LIST_Y - pksm::ui::HelpFooter::FOOTER_HEIGHT - LIST_BOTTOM_MARGIN;
-    itemList = pksm::ui::BagItemList::New(LIST_X, LIST_Y, ListWidth(), listHeight, ROW_HEIGHT, itemListFocusManager);
+    itemList = pksm::ui::BagItemList::New(LIST_X, LIST_Y, ListWidth(), ListHeight(), ROW_HEIGHT, itemListFocusManager);
     itemList->SetName("BagItemList Element");
     itemList->EstablishOwningRelationship();
     itemList->SetOnFocusChanged([this]() {
@@ -176,6 +211,16 @@ void BagScreen::InitializeItemList() {
         UpdateHelpItems();
     });
     this->Add(itemList);
+}
+
+void BagScreen::InitializePicker() {
+    pickerFocusManager = pksm::input::FocusManager::New("ItemPicker Manager");
+    focusManager->RegisterChildManager(pickerFocusManager);
+    // Its header takes the pouch title's band, its list the bag list's place
+    picker = pksm::ui::ItemPicker::New(
+        LIST_X, TOP_MARGIN - 10, LIST_Y, ListWidth(), ListHeight(), ROW_HEIGHT, pickerFocusManager
+    );
+    this->Add(picker);
 }
 
 void BagScreen::ShowPouch(size_t index) {
@@ -241,6 +286,20 @@ void BagScreen::HandleBackButton() {
 
 void BagScreen::UpdateHelpItems() {
     std::vector<pksm::ui::HelpItem> helpItems;
+    if (picker->IsOpen()) {
+        if (picker->HasRows()) {
+            helpItems.push_back({{pksm::ui::global::ButtonGlyph::A}, "Add"});
+        }
+        if (picker->HasCandidates()) {
+            helpItems.push_back({{pksm::ui::global::ButtonGlyph::Y}, "Search"});
+        }
+        if (!picker->GetSearch().empty()) {
+            helpItems.push_back({{pksm::ui::global::ButtonGlyph::X}, "Clear Search"});
+        }
+        helpItems.push_back({{pksm::ui::global::ButtonGlyph::B}, "Cancel"});
+        helpFooter->SetHelpItems(helpItems);
+        return;
+    }
     if (itemList->IsFocused()) {
         if (CanEditCount()) {
             helpItems.push_back({{pksm::ui::global::ButtonGlyph::A}, "Set Quantity"});
@@ -255,6 +314,9 @@ void BagScreen::UpdateHelpItems() {
         }
         helpItems.push_back({{pksm::ui::global::ButtonGlyph::B}, "Back"});
     }
+    if (CanAdd()) {
+        helpItems.push_back({{pksm::ui::global::ButtonGlyph::Plus}, "Add"});
+    }
     // The footer keeps to what a newcomer needs; B out of the list and the d-pad go without saying
     helpItems.push_back({{pksm::ui::global::ButtonGlyph::L, pksm::ui::global::ButtonGlyph::R}, "Switch Pouch"});
     helpFooter->SetHelpItems(helpItems);
@@ -262,6 +324,10 @@ void BagScreen::UpdateHelpItems() {
 
 void BagScreen::OnInput(u64 down, u64 up, u64 held) {
     if (HandleHelpInput(down)) {
+        return;
+    }
+    if (picker->IsOpen()) {
+        pickerButtonHandler.HandleInput(down, up, held);  // its list moves itself
         return;
     }
     if (itemList->IsFocused()) {
@@ -363,32 +429,131 @@ void BagScreen::PromptCount() {
         return;
     }
     const auto& slot = pouch.items[index];
-    const int maxCount = pouch.maxCount;
-    const auto entered = utils::ShowKeyboard(
-        slot.name + ": quantity, 0 to " + std::to_string(maxCount) + " (0 removes)",
-        std::to_string(slot.count),
-        std::to_string(maxCount).size(),
-        [maxCount](const std::string& text) -> std::optional<std::string> {
-            if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos ||
-                std::stoi(text) > maxCount) {
-                return "Enter a number from 0 to " + std::to_string(maxCount);
-            }
-            return std::nullopt;
-        },
-        true
+    const auto next = PromptQuantity(
+        slot.name + ": quantity, 0 to " + std::to_string(pouch.maxCount) + " (0 removes)", slot.count, 0, pouch.maxCount
     );
-    if (!entered) {
-        return;
-    }
-    const int next = std::stoi(*entered);
-    if (next == slot.count) {
+    if (!next || *next == slot.count) {
         return;
     }
     if (auto updated = bagDataProvider->SetCount(
-            saveDataAccessor->getCurrentSaveData(), pouch.pouch, slot.slot, static_cast<u16>(next)
+            saveDataAccessor->getCurrentSaveData(), pouch.pouch, slot.slot, static_cast<u16>(*next)
         )) {
         ApplyPouch(std::move(*updated), index);
     }
+}
+
+bool BagScreen::CanAdd() const {
+    return currentPouch < bag.pouches.size() && bag.pouches[currentPouch].pouch != ::pksm::Sav::Pouch::Donut;
+}
+
+void BagScreen::ShowPouchView(bool visible) {
+    const auto& items = bag.pouches[currentPouch].items;
+    pouchTitles[currentPouch]->SetVisible(visible);
+    pouchCount->SetVisible(visible);
+    itemList->SetVisible(visible && !items.empty());
+    emptyNotice->SetVisible(visible && items.empty());
+}
+
+void BagScreen::OpenPicker() {
+    if (!CanAdd()) {
+        if (currentPouch < pouchButtons.size()) {
+            pouchButtons[currentPouch]->shakeOutOfBounds(ui::ShakeDirection::RIGHT);  // donuts are baked in-game
+        }
+        return;
+    }
+    const auto& pouch = bag.pouches[currentPouch];
+    const u64 t0 = armGetSystemTick();
+    adjustRepeat.Reset();
+    pickerFromList = itemList->IsFocused();
+    // An indexed pouch is never full in this sense: with every item held there is nothing left
+    const bool full = !pouch.indexedByItem && pouch.items.size() >= pouch.capacity;
+    auto candidates = full ? std::vector<pksm::bag::Slot>{}
+                           : bagDataProvider->GetAddable(saveDataAccessor->getCurrentSaveData(), pouch.pouch);
+    const size_t count = candidates.size();
+    ShowPouchView(false);
+    for (auto& button : pouchButtons) {
+        button->SetDisabled(true);  // a tap on the column would change the pouch under the picker
+    }
+    picker->Open(
+        pouch.name, std::move(candidates), bag.storageFormat, pouch.pouch, full ? "This pouch is full" : "Nothing left to add"
+    );
+    UpdateHelpItems();
+    LOG_DEBUG(
+        "Picker for " + pouch.name + ": " + std::to_string(count) + " candidates, " +
+        std::to_string(armTicksToNs(armGetSystemTick() - t0) / 1000000) + " ms"
+    );
+}
+
+void BagScreen::LeavePicker() {
+    picker->Close();
+    for (auto& button : pouchButtons) {
+        button->SetDisabled(false);
+    }
+}
+
+void BagScreen::RestorePouchView(bool toList) {
+    ShowPouchView(true);
+    if (toList && !bag.pouches[currentPouch].items.empty()) {
+        itemList->RequestFocus();
+    } else {
+        FocusPouch(currentPouch);
+    }
+    UpdateHelpItems();
+}
+
+void BagScreen::CancelPicker() {
+    LeavePicker();
+    RestorePouchView(pickerFromList);
+}
+
+void BagScreen::PickItem() {
+    const auto chosen = picker->GetSelected();
+    if (!chosen) {
+        return;
+    }
+    const auto& pouch = bag.pouches[currentPouch];
+    int count = 1;  // one-of-each pouches take the item as is
+    if (pouch.maxCount > 1) {
+        const auto entered = PromptQuantity(
+            "Add " + chosen->name + ": quantity, 1 to " + std::to_string(pouch.maxCount), 1, 1, pouch.maxCount
+        );
+        if (!entered) {
+            return;
+        }
+        count = *entered;
+    }
+    auto updated = bagDataProvider->Add(
+        saveDataAccessor->getCurrentSaveData(), pouch.pouch, chosen->itemId, static_cast<u16>(count)
+    );
+    if (!updated) {
+        LOG_ERROR("Bag refused to add item " + std::to_string(chosen->itemId) + " to " + pouch.name);
+        picker->ShakeSelected();
+        return;
+    }
+    const auto& items = updated->items;
+    const auto row = std::find_if(items.begin(), items.end(), [&](const pksm::bag::Slot& slot) {
+        return slot.itemId == chosen->itemId;
+    });
+    const size_t index = row == items.end() ? items.size() - 1 : static_cast<size_t>(row - items.begin());
+    LeavePicker();
+    ApplyPouch(std::move(*updated), index);
+    RestorePouchView(true);  // the new row is the cursor row
+}
+
+void BagScreen::SearchPicker() {
+    constexpr size_t SEARCH_MAX_CHARS = 24;
+    const auto entered =
+        utils::ShowKeyboard("Search " + bag.pouches[currentPouch].name, picker->GetSearch(), SEARCH_MAX_CHARS);
+    if (!entered) {
+        return;
+    }
+    picker->SetSearch(*entered);
+    UpdateHelpItems();
+}
+
+void BagScreen::ClearSearch() {
+    picker->SetSearch("");
+    UpdateHelpItems();
 }
 
 void BagScreen::RemoveItem() {
@@ -412,6 +577,15 @@ void BagScreen::RemoveItem() {
 
 std::vector<pksm::ui::HelpItem> BagScreen::GetHelpOverlayItems() const {
     std::vector<pksm::ui::HelpItem> items;
+    if (picker->IsOpen()) {
+        items.push_back({{pksm::ui::global::ButtonGlyph::A}, "Add Item"});
+        items.push_back({{pksm::ui::global::ButtonGlyph::Y}, "Search by Name"});
+        items.push_back({{pksm::ui::global::ButtonGlyph::X}, "Clear Search"});
+        items.push_back({{pksm::ui::global::ButtonGlyph::RightAnalogStick}, "Page Up/Down"});
+        items.push_back({{pksm::ui::global::ButtonGlyph::B}, "Cancel"});
+        items.push_back({{pksm::ui::global::ButtonGlyph::DPad, pksm::ui::global::ButtonGlyph::LeftAnalogStick}, "Navigate"});
+        return items;
+    }
     if (itemList->IsFocused()) {
         if (CanEditCount()) {
             items.push_back({{pksm::ui::global::ButtonGlyph::A}, "Set Quantity"});
@@ -426,6 +600,9 @@ std::vector<pksm::ui::HelpItem> BagScreen::GetHelpOverlayItems() const {
         items.push_back({{pksm::ui::global::ButtonGlyph::A}, "Open Pouch"});
         items.push_back({{pksm::ui::global::ButtonGlyph::B}, "Back to Main Menu"});
     }
+    if (CanAdd()) {
+        items.push_back({{pksm::ui::global::ButtonGlyph::Plus}, "Add Item"});
+    }
     items.push_back({{pksm::ui::global::ButtonGlyph::L, pksm::ui::global::ButtonGlyph::R}, "Switch Pouch"});
     items.push_back({{pksm::ui::global::ButtonGlyph::DPad, pksm::ui::global::ButtonGlyph::LeftAnalogStick}, "Navigate"});
     return items;
@@ -436,13 +613,15 @@ void BagScreen::OnHelpOverlayShown() {
         button->SetDisabled(true);
     }
     itemList->SetDisabled(true);
+    picker->SetDisabled(true);
 }
 
 void BagScreen::OnHelpOverlayHidden() {
     for (auto& button : pouchButtons) {
-        button->SetDisabled(false);
+        button->SetDisabled(!picker->IsOpen());  // the column stays out of reach behind the picker
     }
     itemList->SetDisabled(false);
+    picker->SetDisabled(false);
 }
 
 }  // namespace pksm::layout

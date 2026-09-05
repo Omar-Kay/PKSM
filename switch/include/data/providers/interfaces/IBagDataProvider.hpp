@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <pu/Plutonium>
+#include <vector>
 
 #include "data/bag/BagData.hpp"
 #include "data/saves/SaveData.hpp"
@@ -23,4 +24,15 @@ public:
         u16 slot,
         u16 count
     ) = 0;
+
+    // The pouch's item list minus what it holds, in the game's order, as rows without a count;
+    // empty when saveData is not the live save
+    virtual std::vector<pksm::bag::Slot>
+    GetAddable(const pksm::saves::SaveData::Ref& saveData, ::pksm::Sav::Pouch pouch) const = 0;
+
+    // Puts count of the item (format-native id) into the pouch: its own slot where the pouch
+    // indexes by item, else the first free one. Returns the pouch as the save now holds it, or
+    // nothing when the item is not the pouch's, already held, or the pouch is full
+    virtual std::optional<pksm::bag::Pouch>
+    Add(const pksm::saves::SaveData::Ref& saveData, ::pksm::Sav::Pouch pouch, u16 itemId, u16 count) = 0;
 };

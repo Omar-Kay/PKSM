@@ -70,8 +70,14 @@ std::optional<std::string> ShowKeyboard(const std::string& headerText, const std
         bufferSize = std::max<size_t>(bufferSize, 256);
     }
     std::vector<char> out(bufferSize, '\0');
+    const u64 t0 = armGetSystemTick();
     rc = swkbdShow(&kbd, out.data(), out.size());
     swkbdClose(&kbd);
+    // The applet's launch is the wait the user feels; typing is the rest
+    LOG_DEBUG(
+        "Keyboard " + std::string(numeric ? "numpad" : "text") + " round trip: " +
+        std::to_string(armTicksToNs(armGetSystemTick() - t0) / 1000000) + " ms"
+    );
     activeValidator = nullptr;
 
     // Cancellation surfaces as a failed result

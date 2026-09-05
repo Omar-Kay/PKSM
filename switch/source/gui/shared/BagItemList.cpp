@@ -65,7 +65,11 @@ void pksm::ui::BagItemList::SetDataSource(
         const u32 spriteKey = pouch == ::pksm::Sav::Pouch::Donut
             ? utils::ItemSpriteManager::DonutKey(slot.itemId, slot.variant)
             : utils::ItemSpriteManager::ItemKey(slot.itemId, storageFormat);
-        rows[i]->SetItem(spriteKey, slot.name, slot.detail.empty() ? "×" + std::to_string(slot.count) : slot.detail);
+        // A row without a detail shows its count, unless there is none to show (a picker candidate)
+        const std::string detail = !slot.detail.empty() ? slot.detail
+            : slot.count > 0                            ? "×" + std::to_string(slot.count)
+                                                        : "";
+        rows[i]->SetItem(spriteKey, slot.name, detail);
         rows[i]->SetSelected(false);
         scrollView->Add(rows[i]);
     }

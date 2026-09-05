@@ -15,4 +15,8 @@ public:
     pksm::bag::BagData GetBag(const pksm::saves::SaveData::Ref& saveData) const override;
     std::optional<pksm::bag::Pouch>
     SetCount(const pksm::saves::SaveData::Ref& saveData, ::pksm::Sav::Pouch pouch, u16 slot, u16 count) override;
+    std::vector<pksm::bag::Slot>
+    GetAddable(const pksm::saves::SaveData::Ref& saveData, ::pksm::Sav::Pouch pouch) const override;
+    std::optional<pksm::bag::Pouch>
+    Add(const pksm::saves::SaveData::Ref& saveData, ::pksm::Sav::Pouch pouch, u16 itemId, u16 count) override;
 };

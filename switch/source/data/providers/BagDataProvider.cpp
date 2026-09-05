@@ -1,6 +1,12 @@
 #include "data/providers/BagDataProvider.hpp"
 
+#include <algorithm>
+#include <unordered_set>
+
 #include "sav/Item.hpp"
+#include "sav/Sav1.hpp"
+#include "sav/Sav2.hpp"
+#include "sav/Sav3.hpp"
 #include "sav/SavZA.hpp"
 #include "utils/CoreStrings.hpp"
 
@@ -20,6 +26,46 @@ u16 NativeItemId(const ::pksm::Item& item) {
     }
 }
 
+void SetNativeItemId(::pksm::Item& item, u16 id) {
+    switch (item.generation()) {
+        case ::pksm::Generation::ONE:
+            static_cast<::pksm::Item1&>(item).id1(id);
+            break;
+        case ::pksm::Generation::TWO:
+            static_cast<::pksm::Item2&>(item).id2(id);
+            break;
+        case ::pksm::Generation::THREE:
+            static_cast<::pksm::Item3&>(item).id3(id);
+            break;
+        default:
+            item.id(id);
+            break;
+    }
+}
+
+// The pouch's item list in the ids the format stores; core's validItems() speaks national ids,
+// which Gen 1-3 saves do not
+std::span<const int> NativeItemList(const ::pksm::Sav& sav, ::pksm::Sav::Pouch pouch) {
+    const auto lists = [&]() {
+        switch (sav.generation()) {
+            case ::pksm::Generation::ONE:
+                return static_cast<const ::pksm::Sav1&>(sav).validItems1();
+            case ::pksm::Generation::TWO:
+                return static_cast<const ::pksm::Sav2&>(sav).validItems2();
+            case ::pksm::Generation::THREE:
+                return static_cast<const ::pksm::Sav3&>(sav).validItems3();
+            default:
+                return sav.validItems();
+        }
+    }();
+    for (const auto& [candidate, list] : lists) {
+        if (candidate == pouch) {
+            return list;
+        }
+    }
+    return {};
+}
+
 // Quality and level boost, the two things a donut is chosen for
 std::string DonutDetail(const ::pksm::SavZA::Donut& donut) {
     return "★" + std::to_string(donut.stars) + "  Lv +" + std::to_string(donut.levelBoost);
@@ -32,6 +78,7 @@ pksm::bag::Pouch ReadPouch(const ::pksm::Sav& sav, ::pksm::Sav::Pouch pouch, int
     pksm::bag::Pouch view{
         pouch, pksm::strings::PouchName(pouch, storageFormat), static_cast<size_t>(capacity), sav.maxCount(pouch), {}
     };
+    view.indexedByItem = sav.pouchIndexedByItem(pouch);
     for (int slot = 0; slot < capacity; slot++) {
         const auto item = sav.item(pouch, static_cast<u16>(slot));
         if (!item) {
@@ -113,6 +160,82 @@ std::optional<pksm::bag::Pouch> BagDataProvider::SetCount(
         // An empty item of any format converts to an empty one of this format, flags and all
         sav->item(::pksm::Item1{}, pouch, static_cast<u16>(capacity - 1));
     }
+    saveDataAccessor->markDirty();
+    return ReadPouch(*sav, pouch, capacity);
+}
+
+std::vector<pksm::bag::Slot>
+BagDataProvider::GetAddable(const pksm::saves::SaveData::Ref& saveData, ::pksm::Sav::Pouch pouch) const {
+    std::vector<pksm::bag::Slot> addable;
+    ::pksm::Sav* sav = saveDataAccessor->savFor(saveData);
+    if (!sav) {
+        return addable;
+    }
+    std::unordered_set<u16> held;
+    const int capacity = PouchCapacity(*sav, pouch);
+    for (int slot = 0; slot < capacity; slot++) {
+        const auto item = sav->item(pouch, static_cast<u16>(slot));
+        if (!item) {
+            break;
+        }
+        if (item->count() > 0) {
+            held.insert(NativeItemId(*item));
+        }
+    }
+    const auto storageFormat = sav->generation();
+    for (const int id : NativeItemList(*sav, pouch)) {
+        const u16 itemId = static_cast<u16>(id);
+        if (id > 0 && !held.contains(itemId)) {
+            addable.push_back({itemId, 0, pksm::strings::ItemName(itemId, storageFormat), {}, 0, 0});
+        }
+    }
+    return addable;
+}
+
+std::optional<pksm::bag::Pouch>
+BagDataProvider::Add(const pksm::saves::SaveData::Ref& saveData, ::pksm::Sav::Pouch pouch, u16 itemId, u16 count) {
+    ::pksm::Sav* sav = saveDataAccessor->savFor(saveData);
+    if (!sav || count == 0) {
+        return std::nullopt;
+    }
+    const auto list = NativeItemList(*sav, pouch);
+    const auto position = std::find(list.begin(), list.end(), itemId);
+    if (position == list.end()) {
+        return std::nullopt;
+    }
+    const int capacity = PouchCapacity(*sav, pouch);
+    int target = -1;
+    if (sav->pouchIndexedByItem(pouch)) {
+        // Slots follow the list, so the item's own slot is its place in it; refused when held
+        target = static_cast<int>(position - list.begin());
+        const auto item = target < capacity ? sav->item(pouch, static_cast<u16>(target)) : nullptr;
+        if (!item || NativeItemId(*item) != itemId || item->count() > 0) {
+            return std::nullopt;
+        }
+    } else {
+        // The first free slot of an array the game keeps contiguous; the held slots come first
+        for (int slot = 0; slot < capacity; slot++) {
+            const auto item = sav->item(pouch, static_cast<u16>(slot));
+            if (!item) {
+                break;
+            }
+            const u16 id = NativeItemId(*item);
+            if (id == itemId && item->count() > 0) {
+                return std::nullopt;
+            }
+            if (id == 0 || item->count() == 0) {
+                target = slot;
+                break;
+            }
+        }
+    }
+    if (target < 0) {
+        return std::nullopt;
+    }
+    auto item = sav->item(pouch, static_cast<u16>(target));
+    SetNativeItemId(*item, itemId);
+    item->count(count);
+    sav->item(*item, pouch, static_cast<u16>(target));
     saveDataAccessor->markDirty();
     return ReadPouch(*sav, pouch, capacity);
 }

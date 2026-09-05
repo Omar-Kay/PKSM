@@ -104,6 +104,9 @@ void pksm::ui::BagItemRow::DrawText(
     pu::i32 rowY,
     bool alignRight
 ) {
+    if (text.empty()) {
+        return;  // a row need not have a detail
+    }
     if (!texture) {
         texture = utils::TextTextureCache::Get(RowFont(), text, color);
     }

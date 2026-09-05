@@ -24,6 +24,7 @@ struct Pouch {
     size_t capacity;
     u16 maxCount = 0;         // Largest quantity one slot holds in-game; 1 means one of each, not a stack
     std::vector<Slot> items;  // Owned items in save order
+    bool indexedByItem = false;  // One slot per item: rows never move, and full means every item is held
 };
 
 struct BagData {

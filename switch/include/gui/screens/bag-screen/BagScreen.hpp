@@ -13,6 +13,7 @@
 #include "gui/shared/components/BagItemList.hpp"
 #include "gui/shared/components/BaseLayout.hpp"
 #include "gui/shared/components/FocusableButton.hpp"
+#include "gui/shared/components/ItemPicker.hpp"
 #include "input/HoldRepeat.hpp"
 #include "input/ButtonInputHandler.hpp"
 #include "input/directional/DirectionalInputHandler.hpp"
@@ -59,6 +60,9 @@ private:
     pu::ui::elm::TextBlock::Ref pouchCount;
     pu::ui::elm::TextBlock::Ref emptyNotice;
     pksm::ui::BagItemList::Ref itemList;
+    // Stands in for the list while an item is being added
+    pksm::ui::ItemPicker::Ref picker;
+    bool pickerFromList = false;  // where focus returns when the picker closes without a choice
 
     // Layout constants
     static constexpr pu::i32 SIDE_MARGIN = 80;
@@ -78,21 +82,25 @@ private:
     // Focus management
     pksm::input::FocusManager::Ref focusManager;
     pksm::input::FocusManager::Ref itemListFocusManager;
+    pksm::input::FocusManager::Ref pickerFocusManager;
 
-    // Input handlers
+    // Input handlers; the picker's buttons replace the others while it is open
     pksm::input::DirectionalInputHandler pouchDirectionalHandler;
     pksm::input::DirectionalInputHandler listDirectionalHandler;
     pksm::input::ButtonInputHandler buttonHandler;
+    pksm::input::ButtonInputHandler pickerButtonHandler;
 
     static constexpr pu::i32 PouchY(size_t index) {
         return TOP_MARGIN + static_cast<pu::i32>(index) * (POUCH_HEIGHT + POUCH_SPACING);
     }
     pu::i32 ListWidth() { return GetWidth() - LIST_X - SIDE_MARGIN; }
+    pu::i32 ListHeight() { return GetHeight() - LIST_Y - pksm::ui::HelpFooter::FOOTER_HEIGHT - LIST_BOTTOM_MARGIN; }
 
     pu::ui::elm::TextBlock::Ref AddText(pu::i32 x, pu::i32 y, const std::string& text, const std::string& font);
     void OnInput(u64 down, u64 up, u64 held);
     void InitializePouchColumn();
     void InitializeItemList();
+    void InitializePicker();
     void ShowPouch(size_t index);
     void FocusPouch(size_t index);
     void FocusItemList();
@@ -109,6 +117,17 @@ private:
     void ApplyPouch(pksm::bag::Pouch pouch, size_t selected);
     static u32 StackKey(const pksm::bag::Slot& slot);
     bool IsEdited(const pksm::bag::Slot& slot) const;
+
+    // Adding an item: Plus swaps the list for the picker, a choice lands as the cursor row
+    bool CanAdd() const;
+    void ShowPouchView(bool visible);
+    void OpenPicker();
+    void LeavePicker();
+    void RestorePouchView(bool toList);
+    void CancelPicker();
+    void PickItem();
+    void SearchPicker();
+    void ClearSearch();
 
     // Override BaseLayout methods
     std::vector<pksm::ui::HelpItem> GetHelpOverlayItems() const override;
