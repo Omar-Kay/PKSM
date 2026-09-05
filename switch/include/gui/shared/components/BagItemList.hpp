@@ -85,12 +85,15 @@ public:
     void SetFocused(bool focused) override;
     bool IsFocused() const override;
 
-    // storageFormat and pouch key the sprites; the cursor lands on selected (clamped to the rows)
+    // storageFormat and pouch key the sprites; the cursor lands on selected (clamped to the rows).
+    // keepScroll holds the view where it was, for a rebind of the same list; a new list starts at
+    // the top. Either way the cursor row ends up in view
     void SetDataSource(
         const std::vector<bag::Slot>& items,
         ::pksm::Generation storageFormat,
         ::pksm::Sav::Pouch pouch,
-        size_t selected = 0
+        size_t selected = 0,
+        bool keepScroll = false
     );
     size_t GetSelectedIndex() const { return selectedIndex; }
     // The right stick pages the list; a parent keeps it out of its own directional handling

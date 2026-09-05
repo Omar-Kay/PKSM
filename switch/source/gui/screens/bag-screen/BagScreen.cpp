@@ -370,7 +370,7 @@ void BagScreen::ApplyPouch(pksm::bag::Pouch pouch, size_t selected) {
     }
     if (!sameRows) {
         // A removal shifts the rows; a quantity change only re-rasterizes its own detail
-        itemList->SetDataSource(items, bag.storageFormat, bag.pouches[currentPouch].pouch, selected);
+        itemList->SetDataSource(items, bag.storageFormat, bag.pouches[currentPouch].pouch, selected, true);
         const std::string noun = bag.pouches[currentPouch].pouch == ::pksm::Sav::Pouch::Donut ? " donut" : " item";
         pouchCount->SetText(std::to_string(items.size()) + noun + (items.size() == 1 ? "" : "s"));
         pouchCount->SetX(LIST_X + ListWidth() - pouchCount->GetWidth());

@@ -43,9 +43,11 @@ void pksm::ui::BagItemList::SetDataSource(
     const std::vector<bag::Slot>& items,
     ::pksm::Generation storageFormat,
     ::pksm::Sav::Pouch pouch,
-    size_t selected
+    size_t selected,
+    bool keepScroll
 ) {
     const u64 t0 = armGetSystemTick();
+    const pu::i32 previousOffset = scrollView->GetScrollOffset();
     const size_t built = rows.size();
     while (rows.size() < items.size()) {
         const size_t i = rows.size();
@@ -82,7 +84,8 @@ void pksm::ui::BagItemList::SetDataSource(
     scrollView->SetContentHeight(
         shown == 0 ? 0 : static_cast<pu::i32>(shown) * (rowHeight + ROW_SPACING) - ROW_SPACING + OUTLINE_PADDING * 2
     );
-    scrollView->ScrollToOffset(0, false);
+    // ScrollToOffset clamps, so a shorter list stops at its new end
+    scrollView->ScrollToOffset(keepScroll ? previousOffset : 0, false);
     LOG_DEBUG(
         "Bag rows: " + std::to_string(shown) + " shown, " + std::to_string(rows.size() - built) + " newly built, " +
         std::to_string(armTicksToNs(armGetSystemTick() - t0) / 1000000) + " ms"
